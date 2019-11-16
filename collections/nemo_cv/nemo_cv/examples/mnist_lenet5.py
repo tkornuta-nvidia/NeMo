@@ -33,7 +33,7 @@ nf = nemo.core.NeuralModuleFactory(placement=DeviceType.CPU)
 # 1. Instantiate necessary neural modules
 dl = MNISTDataLayer(
     batch_size=64,
-    root="~/data/mnist",
+    data_folder="~/data/mnist",
     train=True,
     shuffle=True
 )
@@ -50,7 +50,7 @@ loss = nll_loss(predictions=p, targets=y)
 # Create validation graph, starting from the second data layer.
 dl_e = MNISTDataLayer(
     batch_size=64,
-    root="~/data/mnist",
+    data_folder="~/data/mnist",
     train=False,
     shuffle=True
 )

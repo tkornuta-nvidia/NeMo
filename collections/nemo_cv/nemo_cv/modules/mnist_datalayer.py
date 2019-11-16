@@ -1,4 +1,4 @@
-# Copyright (C) tkornuta, NVIDIA AI Applications Team. All Rights Reserved.
+# Copyright (C) NVIDIA. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,9 @@
 
 __author__ = "Tomasz Kornuta"
 
+from os.path import expanduser
 import torch
 
-from torch.utils.data import Dataset
 from torchvision import transforms, datasets
 
 from nemo.backends.pytorch.nm import TrainableNM, NonTrainableNM, LossNM,\
@@ -28,20 +28,19 @@ from nemo.core import NeuralType, BatchTag, ChannelTag, HeightTag, WidthTag,\
 
 class MNISTDataLayer(DataLayerNM):
     """Wrapper around torchvision's MNIST dataset.
-
-    Args:
-        batch_size (int)
-        root (str): Where to store the dataset
-        train (bool)
-        shuffle (bool)
     """
 
     @staticmethod
     def create_ports(input_size=(32, 32)):
+        """
+        Creates definitions of input and output ports.
+        By default, it sets HeightTag WidthTag size to 32.
+        (TO BE REFACTORED).
+        """
         input_ports = {}
         output_ports = {
             "images": NeuralType({0: AxisType(BatchTag),
-                                  1: AxisType(ChannelTag, 1),
+                                  1: AxisType(ChannelTag, 3),
                                   2: AxisType(HeightTag, input_size[1]),
                                   3: AxisType(WidthTag, input_size[0])}),
             "targets": NeuralType({0: AxisType(BatchTag)})
@@ -49,26 +48,36 @@ class MNISTDataLayer(DataLayerNM):
         return input_ports, output_ports
 
     def __init__(
-            self, *,
-            batch_size,
-            root,
-            train=True,
-            shuffle=True,
-            **kwargs
+        self,
+        batch_size,
+        data_folder="~/data/mnist",
+        train=True,
+        shuffle=True
     ):
+        """
+        Initializes the MNIST datalayer.
+
+        Args:
+            batch_size: size of batch
+            data_folder: path to the folder with data, can be relative to user.
+            train: use train or test splits
+            shuffle: shuffle data (True by default)
+        """
         # Passing the default params to base init call.
-        DataLayerNM.__init__(self, **kwargs)
+        DataLayerNM.__init__(self)
 
         self._batch_size = batch_size
         self._train = train
         self._shuffle = shuffle
-        self._root = root
+
+        # Get absolute path.
+        abs_data_folder = expanduser(data_folder)
 
         # Up-scale and transform to tensors.
         self._transforms = transforms.Compose(
             [transforms.Resize((32, 32)), transforms.ToTensor()])
 
-        self._dataset = datasets.MNIST(root=self._root, train=self._train,
+        self._dataset = datasets.MNIST(root=abs_data_folder, train=self._train,
                                        download=True,
                                        transform=self._transforms)
 
