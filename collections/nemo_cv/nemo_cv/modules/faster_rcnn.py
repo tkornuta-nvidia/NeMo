@@ -77,12 +77,12 @@ class FasterRCNN(TrainableNM):
 
         self.to(self._device)
 
-    def forward(self, images):
+    def forward(self, images, targets=None):
         """
         Performs the forward step of the model.
 
         Args:
             images: Batch of images to be classified.
         """
-        predictions = self.model(images)
+        predictions = self.model(images, targets)
         return predictions

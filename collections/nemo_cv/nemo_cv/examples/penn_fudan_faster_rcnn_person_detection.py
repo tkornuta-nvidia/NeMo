@@ -45,8 +45,8 @@ model = FasterRCNN(2)
 
 
 # 2. Describe activation's flow
-#ids, imgs, boxes, targets, masks, areas, iscrowds = PennDL()
-#p = model(images=imgs)
+# ids, imgs, boxes, targets, masks, areas, iscrowds = PennDL()
+# p = model(images=imgs)
 
 
 # Invoke "train" action
@@ -86,15 +86,26 @@ def reduce_dict(input_dict, average=True):
 def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
     model.train()
 
-    for image_ids, images, boxes, targets, masks, areas, iscrowds in data_loader:
+    for image_ids, images, boxes, targets, masks, areas, iscrowds \
+            in data_loader:
         images = list(image.to(device) for image in images)
-        print("images: ", type(images))
-        print("boxes: ", type(boxes))
-        print("targets: ", type(targets))
+        # print("images: ", type(images))
+        # print("boxes: ", type(boxes))
+        # print(boxes)
+        # print("targets: ", type(targets))
+        # print(targets)
 
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        #boxes = [b.to(device) for b in boxes]
+        # print(targets)
+        #targets = [t.to(device) for t in targets]
 
-        loss_dict = model.forward(images, targets)
+        # We need to put this in a tuple again, as OD "framework" assumes it :]
+        targets_tuple = [{"boxes": b.to(device),
+                          "labels": t.to(device)} for b, t
+                         in zip(boxes, targets)]
+        #targets_tuple = {"boxes": boxes, "targets": targets}
+        loss_dict = model.forward(images, targets_tuple)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -146,4 +157,4 @@ for epoch in range(num_epochs):
                     device, epoch, print_freq=10)
 
     # evaluate on the test dataset
-    #evaluate(model, data_loader_test, device=device)
+    # evaluate(model, data_loader_test, device=device)
