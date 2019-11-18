@@ -40,7 +40,7 @@ class MNISTDataLayer(DataLayerNM):
         input_ports = {}
         output_ports = {
             "images": NeuralType({0: AxisType(BatchTag),
-                                  1: AxisType(ChannelTag, 3),
+                                  1: AxisType(ChannelTag, 1),
                                   2: AxisType(HeightTag, input_size[1]),
                                   3: AxisType(WidthTag, input_size[0])}),
             "targets": NeuralType({0: AxisType(BatchTag)})

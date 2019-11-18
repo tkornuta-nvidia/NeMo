@@ -24,6 +24,9 @@ from torchvision import transforms
 
 from nemo.backends.pytorch.nm import DataLayerNM
 
+from nemo.core import NeuralType, AxisType, DeviceType, \
+    BatchTag, ChannelTag, HeightTag, WidthTag, ListTag, BoundingBoxTag
+
 
 class PennFudanPedestrianDataset(Dataset):
     """
@@ -42,10 +45,10 @@ class PennFudanPedestrianDataset(Dataset):
         self.abs_data_folder = os.path.expanduser(data_folder)
 
         # Load and sort all the image files.
-        self.imgs = list(
-            sorted(os.listdir(os.path.join(self.abs_data_folder, "PNGImages"))))
-        self.masks = list(
-            sorted(os.listdir(os.path.join(self.abs_data_folder, "PedMasks"))))
+        self.imgs = list(sorted(
+            os.listdir(os.path.join(self.abs_data_folder, "PNGImages"))))
+        self.masks = list(sorted(
+            os.listdir(os.path.join(self.abs_data_folder, "PedMasks"))))
 
         # Image transforms - to tensor.
         self.transforms = transforms.Compose([transforms.ToTensor()])
@@ -53,10 +56,9 @@ class PennFudanPedestrianDataset(Dataset):
     def __getitem__(self, idx):
         """
         Returns a single sample, consisting of:
-            - index of a sample
-            - image_id (Int64Tensor[1]): an image identifier. It should be
-            unique between all the images in the dataset, and is used during
-            evaluation
+            - index of a sample (Int64Tensor[1]): an image identifier.
+            It should be unique between all the images in the dataset,
+            can be used during evaluation
             - image: a PIL Image of size (H, W)
             - masks (UInt8Tensor[N, H, W]): The segmentation masks
             for each one of the objects
@@ -104,17 +106,21 @@ class PennFudanPedestrianDataset(Dataset):
             ymax = np.max(pos[0])
             boxes.append([xmin, ymin, xmax, ymax])
 
+        # Transform index to tensor.
+        image_id = torch.tensor([idx])
+
         # Change to tensors.
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        labels = torch.ones((num_objs,), dtype=torch.int64)
+        targets = torch.ones((num_objs,), dtype=torch.int64)
         masks = torch.as_tensor(masks, dtype=torch.uint8)
 
-        image_id = torch.tensor([idx])
+        # Calculate the area.
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
-        # suppose all instances are not crowd
+
+        # Suppose all instances are not crowd.
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
 
-        return idx, image_id, img, boxes, labels, masks, area, iscrowd
+        return image_id, img, boxes, targets, masks, area, iscrowd
 
     def __len__(self):
         return len(self.imgs)
@@ -131,34 +137,52 @@ class PennFudanDataLayer(DataLayerNM):
         """
         input_ports = {}
         output_ports = {
-            "indices": NeuralType({0, AxisType(Batch)}),
+            # Batch of indices.
+            "indices": NeuralType({0, AxisType(BatchTag)}),
+            # Batch of images.
             "images": NeuralType({0: AxisType(BatchTag),
                                   1: AxisType(ChannelTag, 3),
                                   2: AxisType(HeightTag),
                                   3: AxisType(WidthTag)}),
-            "targets": NeuralType({0: AxisType(BatchTag)})
+            # Batch of bounding boxes.
+            "bounding_boxes": NeuralType({0: AxisType(BatchTag),
+                                          1: AxisType(ListTag),
+                                          2: AxisType(BoundingBoxTag)}),
+            # Batch of targets.
+            "targets": NeuralType({0: AxisType(BatchTag)}),
+            # Batch of masks.
+            "masks": NeuralType({0: AxisType(BatchTag),
+                                 # Each channel = 1 object.
+                                 1: AxisType(ChannelTag),
+                                 2: AxisType(HeightTag),
+                                 3: AxisType(WidthTag)}),
+            # Batch of areas.
+            "areas": NeuralType({0: AxisType(BatchTag)}),
+
+            # Batch of "is crowd"s.
+            "iscrowds": NeuralType({0: AxisType(BatchTag)})
         }
         return input_ports, output_ports
 
     def __init__(
         self,
         batch_size,
-        shuffle=True
+        shuffle=True,
+        data_folder="~/data/PennFudanPed"
     ):
         """
         Initializes the datalayer.
 
         Args:
             batch_size: size of batch
-            data_folder: path to the folder with data, can be relative to user.
-            train: use train or test splits
             shuffle: shuffle data(True by default)
+            data_folder: path to the folder with data, can be relative to user.
         """
         # Passing the default params to base init call.
         DataLayerNM.__init__(self)
 
+        # Do we need to set those??
         self._batch_size = batch_size
-        self._train = train
         self._shuffle = shuffle
 
         self._dataset = PennFudanPedestrianDataset()

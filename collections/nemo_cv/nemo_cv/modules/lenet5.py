@@ -39,13 +39,14 @@ class LeNet5(TrainableNM):
             "predictions": NeuralType({0: AxisType(BatchTag),
                                        1: AxisType(LogProbabilityTag)
                                        })
-            # no PredictionTag!?
-
         }
         return input_ports, output_ports
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self):
+        """
+        Creates the LeNet-5 model.
+        """
+        super().__init__()
 
         # Create the LeNet-5 model.
         self.model = torch.nn.Sequential(
@@ -67,5 +68,12 @@ class LeNet5(TrainableNM):
         self.to(self._device)
 
     def forward(self, images):
+        """
+        Performs the forward step of the model.
+
+        Args:
+            images: Batch of images to be classified.
+        """
+
         predictions = self.model(images)
         return predictions

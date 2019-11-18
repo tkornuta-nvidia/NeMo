@@ -21,6 +21,8 @@ __all__ = ['BaseTag',
            'LogitTag',
            'LogProbabilityTag',
            'ProbabilityTag',
+           'ListTag',
+           'BoundingBoxTag',
            'NeuralTypeComparisonResult',
            'AxisType',
            'NeuralType',
@@ -129,7 +131,7 @@ class LogitTag(BaseTag):
     Tag representing activations of the last layer of the model."""
 
     def __str__(self):
-        return "logits"
+        return "logit"
 
 # Probabilities.
 
@@ -150,6 +152,20 @@ class ProbabilityTag(BaseTag):
 
     def __str__(self):
         return "probability"
+
+
+class ListTag(BaseTag):
+    """Tag representing a list of objects."""
+
+    def __str__(self):
+        return "list"
+
+
+class BoundingBoxTag(BaseTag):
+    """Tag representing a bounding box."""
+
+    def __str__(self):
+        return "bounding box"
 
 
 class NeuralTypeComparisonResult(Enum):
