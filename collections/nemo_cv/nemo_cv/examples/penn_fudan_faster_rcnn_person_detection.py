@@ -16,6 +16,7 @@ __author__ = "Tomasz Kornuta"
 
 import math
 import torch
+import sys
 
 import nemo
 import torch
@@ -32,27 +33,30 @@ from nemo_cv.modules.nll_loss import NLLLoss
 nf = nemo.core.NeuralModuleFactory(placement=DeviceType.CPU)
 
 # 1. Instantiate necessary neural modules
-# PennDL = PennFudanDataLayer(
-#    batch_size=64,
-#    shuffle=True,
-#    data_folder="~/data/PennFudanPed"
-# )
-
-pfdataset = PennFudanPedestrianDataset()
+PennDL = PennFudanDataLayer(
+    batch_size=64,
+    shuffle=True,
+    data_folder="~/data/PennFudanPed"
+)
 
 # Question: how to pass 2 from DL to model?
 model = FasterRCNN(2)
 
-
 # 2. Describe activation's flow
-# ids, imgs, boxes, targets, masks, areas, iscrowds = PennDL()
-# p = model(images=imgs)
+ids, imgs, boxes, targets, masks, areas, iscrowds = PennDL()
+p = model(images=imgs, bounding_boxes=boxes, targets=targets)
 
 
 # Invoke "train" action
 # nf.train([p], callbacks=[],
 #         optimization_params={"num_epochs": 10, "lr": 0.001},
 #         optimizer="adam")
+
+# sys.exit(1)
+
+
+# NON-NeMo solution - but working!
+pfdataset = PennFudanPedestrianDataset()
 
 
 def reduce_dict(input_dict, average=True):
@@ -95,17 +99,11 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         # print("targets: ", type(targets))
         # print(targets)
 
-        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-        #boxes = [b.to(device) for b in boxes]
-        # print(targets)
-        #targets = [t.to(device) for t in targets]
+        # Move to device.
+        boxes = [b.to(device) for b in boxes]
+        targets = [t.to(device) for t in targets]
 
-        # We need to put this in a tuple again, as OD "framework" assumes it :]
-        targets_tuple = [{"boxes": b.to(device),
-                          "labels": t.to(device)} for b, t
-                         in zip(boxes, targets)]
-        #targets_tuple = {"boxes": boxes, "targets": targets}
-        loss_dict = model.forward(images, targets_tuple)
+        loss_dict = model.forward(images, boxes, targets)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -131,8 +129,8 @@ def collate_fn(batch):
 
 # define training and validation data loaders
 data_loader = torch.utils.data.DataLoader(
-    pfdataset, batch_size=2, shuffle=True, num_workers=4,
-    collate_fn=collate_fn)
+    pfdataset, batch_size=2, shuffle=True, num_workers=4)
+# , collate_fn=collate_fn)
 
 
 device = torch.device(

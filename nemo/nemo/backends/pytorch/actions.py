@@ -45,7 +45,7 @@ class PtActions(Actions):
     def __init__(self, local_rank=None, tb_writer=None,
                  optimization_level=Optimization.mxprO0):
         need_apex = local_rank is not None or \
-                    optimization_level != Optimization.mxprO0
+            optimization_level != Optimization.mxprO0
         if need_apex:
             try:
                 apex = importlib.import_module('apex')
@@ -60,7 +60,7 @@ class PtActions(Actions):
                     parallel = importlib.import_module('apex.parallel')
                     convert_syncbn = parallel.convert_syncbn_model
                     create_syncbn_process_group = (
-                            parallel.create_syncbn_process_group)
+                        parallel.create_syncbn_process_group)
                     DDP = parallel.DistributedDataParallel
                     LARC = parallel.LARC
 
@@ -520,6 +520,7 @@ class PtActions(Actions):
             # all data on every worker
             is_distributed = False
             world_size = None
+            print("!!!HELLO!!!")
             if dl_nm.placement == DeviceType.AllGpu:
                 assert dist.is_initialized()
                 is_distributed = True
@@ -1178,10 +1179,10 @@ class PtActions(Actions):
                                 f" ({world_size})."
                             )
                         process_group = create_syncbn_process_group(
-                                synced_batchnorm_groupsize)
+                            synced_batchnorm_groupsize)
                         pmodule = convert_syncbn(
-                                pmodule,
-                                process_group=process_group)
+                            pmodule,
+                            process_group=process_group)
 
                     self.module_reference_table[key] = (
                         self.module_reference_table[key][0], pmodule

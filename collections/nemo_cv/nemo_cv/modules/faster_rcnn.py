@@ -77,12 +77,17 @@ class FasterRCNN(TrainableNM):
 
         self.to(self._device)
 
-    def forward(self, images, targets=None):
+    def forward(self, images, bounding_boxes, targets):
         """
         Performs the forward step of the model.
 
         Args:
             images: Batch of images to be classified.
         """
-        predictions = self.model(images, targets)
+
+        # We need to put this in a tuple again, as OD "framework" assumes it :]
+        targets_tuple = [{"boxes": b, "labels": t} for b, t
+                         in zip(bounding_boxes, targets)]
+
+        predictions = self.model(images, targets_tuple)
         return predictions
