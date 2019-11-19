@@ -19,11 +19,10 @@ import torch
 
 from torchvision import transforms, datasets
 
-from nemo.backends.pytorch.nm import TrainableNM, NonTrainableNM, LossNM,\
-    DataLayerNM
+from nemo.backends.pytorch.nm import DataLayerNM
 
-from nemo.core import NeuralType, BatchTag, ChannelTag, HeightTag, WidthTag,\
-    AxisType, DeviceType, LogProbabilityTag
+from nemo.core import NeuralType, AxisType, BatchTag, ChannelTag, HeightTag, \
+    WidthTag
 
 
 class MNISTDataLayer(DataLayerNM):

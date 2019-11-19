@@ -29,12 +29,13 @@ from nemo_cv.modules.penn_fudan_person_detection_datalayer import \
 from nemo_cv.modules.faster_rcnn import FasterRCNN
 from nemo_cv.modules.nll_loss import NLLLoss
 
+
 # 0. Instantiate Neural Factory with supported backend
 nf = nemo.core.NeuralModuleFactory(placement=DeviceType.CPU)
 
 # 1. Instantiate necessary neural modules
 PennDL = PennFudanDataLayer(
-    batch_size=64,
+    batch_size=4,
     shuffle=True,
     data_folder="~/data/PennFudanPed"
 )
@@ -48,11 +49,11 @@ p = model(images=imgs, bounding_boxes=boxes, targets=targets)
 
 
 # Invoke "train" action
-# nf.train([p], callbacks=[],
-#         optimization_params={"num_epochs": 10, "lr": 0.001},
-#         optimizer="adam")
+nf.train([p], callbacks=[],
+         optimization_params={"num_epochs": 10, "lr": 0.001},
+         optimizer="adam")
 
-# sys.exit(1)
+sys.exit(1)
 
 
 # NON-NeMo solution - but working!
@@ -129,8 +130,8 @@ def collate_fn(batch):
 
 # define training and validation data loaders
 data_loader = torch.utils.data.DataLoader(
-    pfdataset, batch_size=2, shuffle=True, num_workers=4)
-# , collate_fn=collate_fn)
+    pfdataset, batch_size=2,
+    shuffle=True, num_workers=4, collate_fn=collate_fn)
 
 
 device = torch.device(

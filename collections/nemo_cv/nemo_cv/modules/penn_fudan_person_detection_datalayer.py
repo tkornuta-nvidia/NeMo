@@ -14,6 +14,7 @@
 
 __author__ = "Tomasz Kornuta"
 
+from torch.utils.data.dataloader import default_collate
 import os
 import numpy as np
 from PIL import Image
@@ -105,9 +106,10 @@ class PennFudanPedestrianDataset(Dataset):
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
             boxes.append([xmin, ymin, xmax, ymax])
+        print("Image {} as {} bounding boxes".format(self.imgs[idx], num_objs))
 
         # Transform index to tensor.
-        image_id = torch.tensor([idx])
+        image_id = torch.tensor(idx)
 
         # Change to tensors.
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
@@ -115,7 +117,8 @@ class PennFudanPedestrianDataset(Dataset):
         masks = torch.as_tensor(masks, dtype=torch.uint8)
 
         # Calculate the area.
-        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+        area = torch.as_tensor(
+            boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
 
         # Suppose all instances are not crowd.
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
@@ -197,3 +200,44 @@ class PennFudanDataLayer(DataLayerNM):
     @property
     def data_iterator(self):
         return None
+
+    def collate_fn(self, batch):
+        """
+        Overloaded batch collate - zips batch together.
+
+        Args:
+            batch: list of samples, each defined as "image_id, img, boxes,
+            targets, masks, area, iscrowd"
+        """
+        print("BATCH_SIZE = ", len(batch))
+
+        # Create a batch consisting of a samples zipped "element"-wise.
+        # Elements are: image_id, img, boxes, targets, masks, area, iscrowd
+        zipped_batch = list(tuple(zip(*batch)))
+
+        # Get max size of images.
+        max_sizes = max([image.size() for image in zipped_batch[1]])
+
+        # Create a single tensor for all images - with the max size.
+        # padded_images = torch.zeros(len(batch), *max_sizes)
+
+        # Pad list of images to max size.
+        padded_images = []
+        for i in range(len(batch)):
+            # Assuming: [batch_size, channels, height, width]
+            (c, h, w) = zipped_batch[1][i].size()
+            # Pad tensor, starting from last dimension.
+            padded_image = torch.nn.functional.pad(
+                input=zipped_batch[1][i],
+                pad=(0, max_sizes[2] - w, 0, max_sizes[1] - h, 0, 0),
+                mode='constant', value=0)
+            # Add to list.
+            padded_images.append(padded_image)
+
+        # Replace the images with padded_images.
+        zipped_batch[1] = padded_images
+
+        # Finally, collate.
+        collated_batch = [torch.stack(zb) for zb in zipped_batch]
+
+        return collated_batch
