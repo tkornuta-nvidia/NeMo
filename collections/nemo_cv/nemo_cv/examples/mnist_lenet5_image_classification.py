@@ -30,6 +30,8 @@ from nemo_cv.modules.nll_loss import NLLLoss
 # 0. Instantiate Neural Factory with supported backend
 nf = nemo.core.NeuralModuleFactory(placement=DeviceType.CPU)
 
+
+#############################################################################
 # 1. Instantiate necessary neural modules
 dl = MNISTDataLayer(
     batch_size=64,
@@ -37,17 +39,10 @@ dl = MNISTDataLayer(
     train=True,
     shuffle=True
 )
-
 lenet5 = LeNet5()
-
 nll_loss = NLLLoss()
 
-# 2. Describe activation's flow
-x, y = dl()
-p = lenet5(images=x)
-loss = nll_loss(predictions=p, targets=y)
-
-# Create validation graph, starting from the second data layer.
+# Data layer for the validation.
 dl_e = MNISTDataLayer(
     batch_size=64,
     data_folder="~/data/mnist",
@@ -56,6 +51,15 @@ dl_e = MNISTDataLayer(
 )
 
 
+#############################################################################
+# 2. Describe activation's flow
+x, y = dl()
+p = lenet5(images=x)
+loss = nll_loss(predictions=p, targets=y)
+
+
+#############################################################################
+# Create validation graph, starting from the second data layer.
 x, y = dl_e()
 p = lenet5(images=x)
 nll_loss_e = NLLLoss()

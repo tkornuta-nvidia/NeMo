@@ -1223,10 +1223,7 @@ class PtActions(Actions):
 
             # iteration over batches in epoch
             batch_counter = 0
-            print("HELLO!!!")
             for data in train_dataloader:
-
-                print("data :", type(data))
 
                 if max_steps is not None and self.step >= max_steps:
                     break

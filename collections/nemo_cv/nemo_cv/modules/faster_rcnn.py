@@ -43,7 +43,9 @@ class FasterRCNN(TrainableNM):
                                           1: AxisType(ListTag),
                                           2: AxisType(BoundingBoxTag)}),
             # Batch of targets.
-            "targets": NeuralType({0: AxisType(BatchTag)})
+            "targets": NeuralType({0: AxisType(BatchTag)}),
+            # "Artificial" variable - tensor storing numbers of objects.
+            "num_objects": NeuralType({0: AxisType(BatchTag)})
         }
         output_ports = {
             "predictions": NeuralType({0: AxisType(BatchTag),
@@ -77,7 +79,7 @@ class FasterRCNN(TrainableNM):
 
         self.to(self._device)
 
-    def forward(self, images, bounding_boxes, targets):
+    def forward(self, images, bounding_boxes, targets, num_objects):
         """
         Performs the forward step of the model.
 
@@ -86,8 +88,31 @@ class FasterRCNN(TrainableNM):
         """
 
         # We need to put this in a tuple again, as OD "framework" assumes it :]
+
+        # Unstack tensors with boxes and target, removing the "padded objects".
+        bboxes_padded = torch.unbind(bounding_boxes, dim=0)
+        targets_padded = torch.unbind(targets, dim=0)
+
+        # Unpad bounding boxes.
+        bboxes_unpadded = []
+        for i in range(len(bounding_boxes)):
+            bboxes_unpadded.append(bboxes_padded[i][0:num_objects[i], :])
+
+        #print("!!!! After unbinding !!!!")
+        # for item in bboxes_unpadded:
+        #    print(item.size())
+
+        # Unpad targets.
+        targets_unpadded = []
+        for i in range(len(targets_padded)):
+            targets_unpadded.append(targets_padded[i][0:num_objects[i]])
+
+        #print("!!!! Targets after unbinding !!!!")
+        # for item in targets_unpadded:
+        #    print(item.size())
+
         targets_tuple = [{"boxes": b, "labels": t} for b, t
-                         in zip(bounding_boxes, targets)]
+                         in zip(bboxes_unpadded, targets_unpadded)]
 
         predictions = self.model(images, targets_tuple)
         return predictions

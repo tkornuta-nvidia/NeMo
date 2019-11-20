@@ -18,6 +18,8 @@ from torch.utils.data.dataloader import default_collate
 import os
 import numpy as np
 from PIL import Image
+import itertools
+
 
 import torch
 from torch.utils.data import Dataset
@@ -71,6 +73,8 @@ class PennFudanPedestrianDataset(Dataset):
             scores between small, medium and large boxes.
             - iscrowd (UInt8Tensor[N]): instances with iscrowd=True will be
             ignored during evaluation.
+            - num_objects_per_image (UINT8Tensor[N]): artificial variable 
+            storing number of objects (bounding boxes) per image.
         """
 
         # Load given image and  mask.
@@ -109,7 +113,7 @@ class PennFudanPedestrianDataset(Dataset):
         print("Image {} as {} bounding boxes".format(self.imgs[idx], num_objs))
 
         # Transform index to tensor.
-        image_id = torch.tensor(idx)
+        image_id = torch.tensor(idx, dtype=torch.int64)
 
         # Change to tensors.
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
@@ -123,7 +127,10 @@ class PennFudanPedestrianDataset(Dataset):
         # Suppose all instances are not crowd.
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
 
-        return image_id, img, boxes, targets, masks, area, iscrowd
+        # Change to tensor as well.
+        num_objs = torch.tensor(num_objs, dtype=torch.uint8)
+
+        return image_id, img, boxes, targets, masks, area, iscrowd, num_objs
 
     def __len__(self):
         return len(self.imgs)
@@ -142,17 +149,20 @@ class PennFudanDataLayer(DataLayerNM):
         output_ports = {
             # Batch of indices.
             "indices": NeuralType({0, AxisType(BatchTag)}),
+
             # Batch of images.
             "images": NeuralType({0: AxisType(BatchTag),
                                   1: AxisType(ChannelTag, 3),
                                   2: AxisType(HeightTag),
                                   3: AxisType(WidthTag)}),
+
             # Batch of bounding boxes.
             "bounding_boxes": NeuralType({0: AxisType(BatchTag),
                                           1: AxisType(ListTag),
                                           2: AxisType(BoundingBoxTag)}),
             # Batch of targets.
             "targets": NeuralType({0: AxisType(BatchTag)}),
+
             # Batch of masks.
             "masks": NeuralType({0: AxisType(BatchTag),
                                  # Each channel = 1 object.
@@ -163,7 +173,10 @@ class PennFudanDataLayer(DataLayerNM):
             "areas": NeuralType({0: AxisType(BatchTag)}),
 
             # Batch of "is crowd"s.
-            "iscrowds": NeuralType({0: AxisType(BatchTag)})
+            "iscrowds": NeuralType({0: AxisType(BatchTag)}),
+
+            # "Artificial" variable - tensor storing numbers of objects.
+            "num_objects": NeuralType({0: AxisType(BatchTag)})
         }
         return input_ports, output_ports
 
@@ -201,13 +214,60 @@ class PennFudanDataLayer(DataLayerNM):
     def data_iterator(self):
         return None
 
+    def pad_tensors_to_max(self, tensor_list):
+        """
+        Method returns list of tensors, each padded to the maximum sizes.
+
+        Args:
+            tensor_list - List of tensor to be padded.
+        """
+        # Get max size of tensors.
+        max_sizes = max([t.size() for t in tensor_list])
+
+        #print("MAX = ", max_sizes)
+        # Number of dimensions
+        dims = len(max_sizes)
+        # Create the list of zeros.
+        zero_sizes = [0] * dims
+
+        # Pad list of tensors to max size.
+        padded_tensors = []
+        for tensor in tensor_list:
+            # Get list of current sizes.
+            cur_sizes = tensor.size()
+
+            #print("cur_sizes = ", cur_sizes)
+
+            # Create the reverted list of "desired extensions".
+            ext_sizes = [m-c for (m, c) in zip(max_sizes, cur_sizes)][::-1]
+
+            #print("ext_sizes = ", ext_sizes)
+
+            # Interleave two lists.
+            pad_sizes = list(itertools.chain(*zip(zero_sizes, ext_sizes)))
+
+            #print("pad_sizes = ", pad_sizes)
+
+            # Pad tensor, starting from last dimension.
+            padded_tensor = torch.nn.functional.pad(
+                input=tensor,
+                pad=pad_sizes,
+                mode='constant', value=0)
+
+            #print("Tensor after padding: ", padded_tensor.size())
+            # Add to list.
+            padded_tensors.append(padded_tensor)
+
+        # Return the padded list.
+        return padded_tensors
+
     def collate_fn(self, batch):
         """
         Overloaded batch collate - zips batch together.
 
         Args:
             batch: list of samples, each defined as "image_id, img, boxes,
-            targets, masks, area, iscrowd"
+            targets, masks, area, iscrowd, num_objs"
         """
         print("BATCH_SIZE = ", len(batch))
 
@@ -215,27 +275,29 @@ class PennFudanDataLayer(DataLayerNM):
         # Elements are: image_id, img, boxes, targets, masks, area, iscrowd
         zipped_batch = list(tuple(zip(*batch)))
 
-        # Get max size of images.
-        max_sizes = max([image.size() for image in zipped_batch[1]])
-
-        # Create a single tensor for all images - with the max size.
-        # padded_images = torch.zeros(len(batch), *max_sizes)
-
-        # Pad list of images to max size.
-        padded_images = []
-        for i in range(len(batch)):
-            # Assuming: [batch_size, channels, height, width]
-            (c, h, w) = zipped_batch[1][i].size()
-            # Pad tensor, starting from last dimension.
-            padded_image = torch.nn.functional.pad(
-                input=zipped_batch[1][i],
-                pad=(0, max_sizes[2] - w, 0, max_sizes[1] - h, 0, 0),
-                mode='constant', value=0)
-            # Add to list.
-            padded_images.append(padded_image)
-
         # Replace the images with padded_images.
-        zipped_batch[1] = padded_images
+        zipped_batch[1] = self.pad_tensors_to_max(zipped_batch[1])
+
+        #print(" !!! Bounding boxes per image !!!")
+        # for item in zipped_batch[2]:
+        #    print(item.size())
+
+        # Pad number of bboxes per image.
+        zipped_batch[2] = self.pad_tensors_to_max(zipped_batch[2])
+
+        #print(" !!! Targets per image !!!")
+        # for item in zipped_batch[3]:
+        #    print(item.size())
+
+        # Pad targets.
+        zipped_batch[3] = self.pad_tensors_to_max(zipped_batch[3])
+
+        # Pad masks.
+        zipped_batch[4] = self.pad_tensors_to_max(zipped_batch[4])
+
+        # Pad areas.
+        zipped_batch[5] = self.pad_tensors_to_max(zipped_batch[5])
+        zipped_batch[6] = self.pad_tensors_to_max(zipped_batch[6])
 
         # Finally, collate.
         collated_batch = [torch.stack(zb) for zb in zipped_batch]

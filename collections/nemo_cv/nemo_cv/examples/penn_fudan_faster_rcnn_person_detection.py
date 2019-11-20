@@ -17,6 +17,7 @@ __author__ = "Tomasz Kornuta"
 import math
 import torch
 import sys
+import itertools
 
 import nemo
 import torch
@@ -44,16 +45,17 @@ PennDL = PennFudanDataLayer(
 model = FasterRCNN(2)
 
 # 2. Describe activation's flow
-ids, imgs, boxes, targets, masks, areas, iscrowds = PennDL()
-p = model(images=imgs, bounding_boxes=boxes, targets=targets)
+ids, imgs, boxes, targets, masks, areas, iscrowds, num_objs = PennDL()
+p = model(images=imgs, bounding_boxes=boxes,
+          targets=targets, num_objects=num_objs)
 
 
 # Invoke "train" action
-nf.train([p], callbacks=[],
-         optimization_params={"num_epochs": 10, "lr": 0.001},
-         optimizer="adam")
-
-sys.exit(1)
+# nf.train([p], callbacks=[],
+#         optimization_params={"num_epochs": 10, "lr": 0.001},
+#         optimizer="adam")
+#
+# sys.exit(1)
 
 
 # NON-NeMo solution - but working!
@@ -91,20 +93,16 @@ def reduce_dict(input_dict, average=True):
 def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
     model.train()
 
-    for image_ids, images, boxes, targets, masks, areas, iscrowds \
+    for image_ids, images, boxes, targets, masks, areas, iscrowds, num_objs \
             in data_loader:
-        images = list(image.to(device) for image in images)
-        # print("images: ", type(images))
-        # print("boxes: ", type(boxes))
-        # print(boxes)
-        # print("targets: ", type(targets))
-        # print(targets)
 
         # Move to device.
-        boxes = [b.to(device) for b in boxes]
-        targets = [t.to(device) for t in targets]
+        images = images.to(device)
+        boxes = boxes.to(device)
+        targets = targets.to(device)
+        num_objs = num_objs.to(device)
 
-        loss_dict = model.forward(images, boxes, targets)
+        loss_dict = model.forward(images, boxes, targets, num_objs)
 
         losses = sum(loss for loss in loss_dict.values())
 
@@ -124,8 +122,98 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         optimizer.step()
 
 
+def pad_tensors_to_max(tensor_list):
+    """
+    Method returns list of tensors, each padded to the maximum sizes.
+
+    Args:
+        tensor_list - List of tensor to be padded.
+    """
+    # Get max size of tensors.
+    max_sizes = max([t.size() for t in tensor_list])
+
+    # print("MAX = ", max_sizes)
+    # Number of dimensions
+    dims = len(max_sizes)
+    # Create the list of zeros.
+    zero_sizes = [0] * dims
+
+    # Pad list of tensors to max size.
+    padded_tensors = []
+    for tensor in tensor_list:
+        # Get list of current sizes.
+        cur_sizes = tensor.size()
+
+        # print("cur_sizes = ", cur_sizes)
+
+        # Create the reverted list of "desired extensions".
+        ext_sizes = [m-c for (m, c) in zip(max_sizes, cur_sizes)][:: -1]
+
+        # print("ext_sizes = ", ext_sizes)
+
+        # Interleave two lists.
+        pad_sizes = list(itertools.chain(*zip(zero_sizes, ext_sizes)))
+
+        # print("pad_sizes = ", pad_sizes)
+
+        # Pad tensor, starting from last dimension.
+        padded_tensor = torch.nn.functional.pad(
+            input=tensor,
+            pad=pad_sizes,
+            mode='constant', value=0)
+
+        # print("Tensor after padding: ", padded_tensor.size())
+        # Add to list.
+        padded_tensors.append(padded_tensor)
+
+    # Return the padded list.
+    return padded_tensors
+
+
+# def collate_fn(batch):
+#    return tuple(zip(*batch))
 def collate_fn(batch):
-    return tuple(zip(*batch))
+    """
+    Overloaded batch collate - zips batch together.
+
+    Args:
+        batch: list of samples, each defined as "image_id, img, boxes,
+        targets, masks, area, iscrowd, num_objs"
+    """
+    print("BATCH_SIZE = ", len(batch))
+
+    # Create a batch consisting of a samples zipped "element"-wise.
+    # Elements are: image_id, img, boxes, targets, masks, area, iscrowd
+    zipped_batch = list(tuple(zip(*batch)))
+
+    # Replace the images with padded_images.
+    zipped_batch[1] = pad_tensors_to_max(zipped_batch[1])
+
+    # print(" !!! Bounding boxes per image !!!")
+    # for item in zipped_batch[2]:
+    #    print(item.size())
+
+    # Pad number of bboxes per image.
+    zipped_batch[2] = pad_tensors_to_max(zipped_batch[2])
+
+    # print(" !!! Targets per image !!!")
+    # for item in zipped_batch[3]:
+    #    print(item.size())
+
+    # Pad targets.
+    zipped_batch[3] = pad_tensors_to_max(zipped_batch[3])
+
+    # Pad masks.
+    zipped_batch[4] = pad_tensors_to_max(zipped_batch[4])
+
+    # Pad areas.
+    zipped_batch[5] = pad_tensors_to_max(zipped_batch[5])
+    zipped_batch[6] = pad_tensors_to_max(zipped_batch[6])
+
+    # Finally, collate.
+    collated_batch = [torch.stack(zb) for zb in zipped_batch]
+
+    return collated_batch
 
 
 # define training and validation data loaders
