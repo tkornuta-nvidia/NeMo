@@ -86,7 +86,7 @@ class FasterRCNN(TrainableNM):
         Args:
             images: Batch of images to be classified.
         """
-
+        print("Faster R-CNN forward:")
         # We need to put this in a tuple again, as OD "framework" assumes it :]
 
         # Unstack tensors with boxes and target, removing the "padded objects".
@@ -114,5 +114,11 @@ class FasterRCNN(TrainableNM):
         targets_tuple = [{"boxes": b, "labels": t} for b, t
                          in zip(bboxes_unpadded, targets_unpadded)]
 
-        predictions = self.model(images, targets_tuple)
-        return predictions
+        loss_dict = self.model(images, targets_tuple)
+
+        # Sum losses.
+        losses = sum(loss for loss in loss_dict.values())
+
+        print("Loss = ", losses.item())
+
+        return losses

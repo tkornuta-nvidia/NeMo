@@ -269,8 +269,6 @@ class PennFudanDataLayer(DataLayerNM):
             batch: list of samples, each defined as "image_id, img, boxes,
             targets, masks, area, iscrowd, num_objs"
         """
-        print("BATCH_SIZE = ", len(batch))
-
         # Create a batch consisting of a samples zipped "element"-wise.
         # Elements are: image_id, img, boxes, targets, masks, area, iscrowd
         zipped_batch = list(tuple(zip(*batch)))

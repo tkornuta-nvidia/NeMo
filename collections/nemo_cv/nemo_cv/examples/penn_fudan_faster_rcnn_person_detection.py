@@ -51,11 +51,10 @@ p = model(images=imgs, bounding_boxes=boxes,
 
 
 # Invoke "train" action
-# nf.train([p], callbacks=[],
-#         optimization_params={"num_epochs": 10, "lr": 0.001},
-#         optimizer="adam")
-#
-# sys.exit(1)
+nf.train([p], callbacks=[],
+         optimization_params={"num_epochs": 10, "lr": 0.001},
+         optimizer="adam")
+sys.exit(1)
 
 
 # NON-NeMo solution - but working!
