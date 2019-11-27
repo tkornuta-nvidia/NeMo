@@ -110,7 +110,7 @@ class PennFudanPedestrianDataset(Dataset):
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
             boxes.append([xmin, ymin, xmax, ymax])
-        print("Image {} as {} bounding boxes".format(self.imgs[idx], num_objs))
+        #print("Image {} as {} bounding boxes".format(self.imgs[idx], num_objs))
 
         # Transform index to tensor.
         image_id = torch.tensor(idx, dtype=torch.int64)

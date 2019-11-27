@@ -28,7 +28,7 @@ from nemo_cv.modules.nll_loss import NLLLoss
 
 
 # 0. Instantiate Neural Factory with supported backend
-nf = nemo.core.NeuralModuleFactory(placement=DeviceType.CPU)
+nf = nemo.core.NeuralModuleFactory(placement=DeviceType.GPU)
 
 
 #############################################################################
