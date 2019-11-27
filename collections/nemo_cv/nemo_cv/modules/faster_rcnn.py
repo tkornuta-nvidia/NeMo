@@ -80,7 +80,6 @@ class FasterRCNN(TrainableNM):
                  pretrained_backbone=True,
                  # transform parameters
                  min_size=800, max_size=1333,
-                 image_mean=None, image_std=None,
                  # RPN parameters
                  rpn_pre_nms_top_n_train=2000, rpn_pre_nms_top_n_test=1000,
                  rpn_post_nms_top_n_train=2000, rpn_post_nms_top_n_test=1000,
@@ -88,12 +87,10 @@ class FasterRCNN(TrainableNM):
                  rpn_fg_iou_thresh=0.7, rpn_bg_iou_thresh=0.3,
                  rpn_batch_size_per_image=256, rpn_positive_fraction=0.5,
                  # Box parameters
-                 box_roi_pool=None, box_head=None, box_predictor=None,
                  box_score_thresh=0.05, box_nms_thresh=0.5,
                  box_detections_per_img=100,
                  box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5,
-                 box_batch_size_per_image=512, box_positive_fraction=0.25,
-                 bbox_reg_weights=None
+                 box_batch_size_per_image=512, box_positive_fraction=0.25
                  ):
         """
         Creates the Faster R-CNN model.
@@ -165,13 +162,13 @@ class FasterRCNN(TrainableNM):
             box_roi_pool, box_head, box_predictor,
             box_fg_iou_thresh, box_bg_iou_thresh,
             box_batch_size_per_image, box_positive_fraction,
-            bbox_reg_weights,
+            None,
             box_score_thresh, box_nms_thresh, box_detections_per_img)
 
-        if image_mean is None:
-            image_mean = [0.485, 0.456, 0.406]
-        if image_std is None:
-            image_std = [0.229, 0.224, 0.225]
+        # if image_mean is None:
+        image_mean = [0.485, 0.456, 0.406]
+        # if image_std is None:
+        image_std = [0.229, 0.224, 0.225]
         transform = GeneralizedRCNNTransform(
             min_size, max_size, image_mean, image_std)
 
@@ -232,13 +229,24 @@ class FasterRCNN(TrainableNM):
         if self.training and targets_tuple is None:
             raise ValueError("In training mode, targets should be passed")
         original_image_sizes = [img.shape[-2:] for img in images]
+
+        # Preprocess the images.
         images, targets_tuple = self.transform(images, targets_tuple)
+
+        # Extract the features.
         features = self.backbone(images.tensors)
+
         if isinstance(features, torch.Tensor):
             features = OrderedDict([(0, features)])
+
+        # Calculate the region proposals.
         proposals, proposal_losses = self.rpn(images, features, targets_tuple)
+
+        # Calculate the regions.
         detections, detector_losses = self.roi_heads(
             features, proposals, images.image_sizes, targets_tuple)
+
+        # Postprocess the images.
         detections = self.transform.postprocess(
             detections, images.image_sizes, original_image_sizes)
 
