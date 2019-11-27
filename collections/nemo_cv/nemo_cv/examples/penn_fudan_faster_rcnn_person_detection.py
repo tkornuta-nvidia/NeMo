@@ -46,11 +46,14 @@ model = FasterRCNN(2)
 
 # 2. Describe activation's flow
 ids, imgs, boxes, targets, masks, areas, iscrowds, num_objs = PennDL()
-p = model(images=imgs, bounding_boxes=boxes,
-          targets=targets, num_objects=num_objs)
+losses = model(images=imgs, bounding_boxes=boxes,
+               targets=targets, num_objects=num_objs)
 
 
 # Invoke "train" action
-nf.train([p], callbacks=[],
+nf.train([losses], callbacks=[],
          optimization_params={"num_epochs": 10, "lr": 0.001},
          optimizer="adam")
+
+
+# Test our model.

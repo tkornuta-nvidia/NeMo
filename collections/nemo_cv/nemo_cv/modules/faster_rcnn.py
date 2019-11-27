@@ -223,7 +223,7 @@ class FasterRCNN(TrainableNM):
         targets_tuple = [{"boxes": b, "labels": t} for b, t
                          in zip(bboxes_unpadded, targets_unpadded)]
 
-        # THE PROPER forward pass.
+        # THE PROPPER forward pass.
         #loss_dict = self.model(images, targets_tuple)
 
         if self.training and targets_tuple is None:
@@ -245,6 +245,9 @@ class FasterRCNN(TrainableNM):
         # Calculate the regions.
         detections, detector_losses = self.roi_heads(
             features, proposals, images.image_sizes, targets_tuple)
+
+        # Empty!!! No detections in "training" mode.
+        # print(detections)
 
         # Postprocess the images.
         detections = self.transform.postprocess(
