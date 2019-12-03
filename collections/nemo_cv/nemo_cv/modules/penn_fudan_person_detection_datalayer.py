@@ -18,8 +18,8 @@ from torch.utils.data.dataloader import default_collate
 import os
 import numpy as np
 from PIL import Image
-import itertools
 
+from ..utils.utils import pad_tensors_to_max
 
 import torch
 from torch.utils.data import Dataset
@@ -214,53 +214,6 @@ class PennFudanDataLayer(DataLayerNM):
     def data_iterator(self):
         return None
 
-    def pad_tensors_to_max(self, tensor_list):
-        """
-        Method returns list of tensors, each padded to the maximum sizes.
-
-        Args:
-            tensor_list - List of tensor to be padded.
-        """
-        # Get max size of tensors.
-        max_sizes = max([t.size() for t in tensor_list])
-
-        #print("MAX = ", max_sizes)
-        # Number of dimensions
-        dims = len(max_sizes)
-        # Create the list of zeros.
-        zero_sizes = [0] * dims
-
-        # Pad list of tensors to max size.
-        padded_tensors = []
-        for tensor in tensor_list:
-            # Get list of current sizes.
-            cur_sizes = tensor.size()
-
-            #print("cur_sizes = ", cur_sizes)
-
-            # Create the reverted list of "desired extensions".
-            ext_sizes = [m-c for (m, c) in zip(max_sizes, cur_sizes)][::-1]
-
-            #print("ext_sizes = ", ext_sizes)
-
-            # Interleave two lists.
-            pad_sizes = list(itertools.chain(*zip(zero_sizes, ext_sizes)))
-
-            #print("pad_sizes = ", pad_sizes)
-
-            # Pad tensor, starting from last dimension.
-            padded_tensor = torch.nn.functional.pad(
-                input=tensor,
-                pad=pad_sizes,
-                mode='constant', value=0)
-
-            #print("Tensor after padding: ", padded_tensor.size())
-            # Add to list.
-            padded_tensors.append(padded_tensor)
-
-        # Return the padded list.
-        return padded_tensors
-
     def collate_fn(self, batch):
         """
         Overloaded batch collate - zips batch together.
@@ -274,28 +227,28 @@ class PennFudanDataLayer(DataLayerNM):
         zipped_batch = list(tuple(zip(*batch)))
 
         # Replace the images with padded_images.
-        zipped_batch[1] = self.pad_tensors_to_max(zipped_batch[1])
+        zipped_batch[1] = pad_tensors_to_max(zipped_batch[1])
 
         #print(" !!! Bounding boxes per image !!!")
         # for item in zipped_batch[2]:
         #    print(item.size())
 
         # Pad number of bboxes per image.
-        zipped_batch[2] = self.pad_tensors_to_max(zipped_batch[2])
+        zipped_batch[2] = pad_tensors_to_max(zipped_batch[2])
 
         #print(" !!! Targets per image !!!")
         # for item in zipped_batch[3]:
         #    print(item.size())
 
         # Pad targets.
-        zipped_batch[3] = self.pad_tensors_to_max(zipped_batch[3])
+        zipped_batch[3] = pad_tensors_to_max(zipped_batch[3])
 
         # Pad masks.
-        zipped_batch[4] = self.pad_tensors_to_max(zipped_batch[4])
+        zipped_batch[4] = pad_tensors_to_max(zipped_batch[4])
 
         # Pad areas.
-        zipped_batch[5] = self.pad_tensors_to_max(zipped_batch[5])
-        zipped_batch[6] = self.pad_tensors_to_max(zipped_batch[6])
+        zipped_batch[5] = pad_tensors_to_max(zipped_batch[5])
+        zipped_batch[6] = pad_tensors_to_max(zipped_batch[6])
 
         # Finally, collate.
         collated_batch = [torch.stack(zb) for zb in zipped_batch]

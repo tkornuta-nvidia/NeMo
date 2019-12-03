@@ -14,13 +14,17 @@
 
 __author__ = "Tomasz Kornuta"
 
+from torchvision.ops import misc as misc_nn_ops
 from collections import OrderedDict
 
 import torch
 import torchvision.models.detection as detection
 import torchvision.models.utils as utils
 
-from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, \
+from torchvision.models.detection import _utils as det_utils
+import torch.nn.functional as F
+
+from ..utils.object_detection.rpn import AnchorGenerator, RPNHead, \
     RegionProposalNetwork
 from torchvision.models.detection.roi_heads import RoIHeads
 
@@ -32,13 +36,16 @@ from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.faster_rcnn import TwoMLPHead, \
     FastRCNNPredictor
 
-#from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+# from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 from nemo.backends.pytorch.nm import TrainableNM
 
 from nemo.core import NeuralType, AxisType, DeviceType,\
     BatchTag, ChannelTag, HeightTag, WidthTag, ListTag, BoundingBoxTag, \
     LogProbabilityTag
+
+from ..utils.utils import pad_tensors_to_max
+
 
 model_urls = {
     'fasterrcnn_resnet50_fpn_coco':
@@ -138,6 +145,11 @@ class FasterRCNN(TrainableNM):
             rpn_batch_size_per_image, rpn_positive_fraction,
             rpn_pre_nms_top_n, rpn_post_nms_top_n, rpn_nms_thresh)
 
+        # SAMPLER USED IN CALCULATION OF RPN LOSS!
+        self.fg_bg_sampler = det_utils.BalancedPositiveNegativeSampler(
+            rpn_batch_size_per_image, rpn_positive_fraction
+        )
+
         # if box_roi_pool is None:
         box_roi_pool = MultiScaleRoIAlign(
             featmap_names=[0, 1, 2, 3],
@@ -172,9 +184,9 @@ class FasterRCNN(TrainableNM):
         transform = GeneralizedRCNNTransform(
             min_size, max_size, image_mean, image_std)
 
-        #self.model = detection.FasterRCNN(backbone, num_classes)
+        # self.model = detection.FasterRCNN(backbone, num_classes)
 
-        #super(FasterRCNN, self).__init__(backbone, rpn, roi_heads, transform)
+        # super(FasterRCNN, self).__init__(backbone, rpn, roi_heads, transform)
 
         self.transform = transform
         self.backbone = backbone
@@ -196,6 +208,126 @@ class FasterRCNN(TrainableNM):
 
         self.to(self._device)
 
+    ###########################################################################
+    # PROCESSING RELATED METHODS.
+    ###########################################################################
+
+    def expand_masks(self, mask, padding):
+        M = mask.shape[-1]
+        scale = float(M + 2 * padding) / M
+        padded_mask = torch.nn.functional.pad(mask, (padding,) * 4)
+        return padded_mask, scale
+
+    def resize_boxes(self, mask, box, im_h, im_w):
+        TO_REMOVE = 1
+        w = int(box[2] - box[0] + TO_REMOVE)
+        h = int(box[3] - box[1] + TO_REMOVE)
+        w = max(w, 1)
+        h = max(h, 1)
+
+        # Set shape to [batchxCxHxW]
+        mask = mask.expand((1, 1, -1, -1))
+
+        # Resize mask
+        mask = misc_nn_ops.interpolate(mask, size=(
+            h, w), mode='bilinear', align_corners=False)
+        mask = mask[0][0]
+
+        im_mask = torch.zeros(
+            (im_h, im_w), dtype=mask.dtype, device=mask.device)
+        x_0 = max(box[0], 0)
+        x_1 = min(box[2] + 1, im_w)
+        y_0 = max(box[1], 0)
+        y_1 = min(box[3] + 1, im_h)
+
+        im_mask[y_0:y_1, x_0:x_1] = mask[
+            (y_0 - box[1]):(y_1 - box[1]), (x_0 - box[0]):(x_1 - box[0])
+        ]
+        return im_mask
+
+    def paste_masks_in_image(self, masks, boxes, img_shape, padding=1):
+        masks, scale = self.expand_masks(masks, padding=padding)
+        boxes = self.expand_boxes(boxes, scale).to(dtype=torch.int64).tolist()
+        # im_h, im_w = img_shape.tolist()
+        im_h, im_w = img_shape
+        res = [
+            self.paste_mask_in_image(m[0], b, im_h, im_w)
+            for m, b in zip(masks, boxes)
+        ]
+        if len(res) > 0:
+            res = torch.stack(res, dim=0)[:, None]
+        else:
+            res = masks.new_empty((0, 1, im_h, im_w))
+        return res
+
+    def postprocess(self, predictions, image_shapes,
+                    original_image_sizes):
+        # if self.training:
+        #    return result
+        result = predictions
+        for i, (pred, im_s, o_im_s) in enumerate(zip(predictions,
+                                                     image_shapes,
+                                                     original_image_sizes)):
+            boxes = pred["boxes"]
+            boxes = self.resize_boxes(boxes, im_s, o_im_s)
+            result[i]["boxes"] = boxes
+            if "masks" in pred:
+                masks = pred["masks"]
+                masks = self.paste_masks_in_image(masks, boxes, o_im_s)
+                result[i]["masks"] = masks
+            if "keypoints" in pred:
+                keypoints = pred["keypoints"]
+                keypoints = self.resize_keypoints(keypoints, im_s, o_im_s)
+                result[i]["keypoints"] = keypoints
+        return result
+
+    ###########################################################################
+    # LOSS.
+    ###########################################################################
+
+    def compute_loss(self, objectness, pred_bbox_deltas, labels,
+                     regression_targets):
+        """
+        Arguments:
+            objectness (Tensor)
+            pred_bbox_deltas (Tensor)
+            labels (List[Tensor])
+            regression_targets (List[Tensor])
+
+        Returns:
+            objectness_loss (Tensor)
+            box_loss (Tensor
+        """
+
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        sampled_pos_inds = torch.nonzero(
+            torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
+        sampled_neg_inds = torch.nonzero(
+            torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
+
+        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
+
+        objectness = objectness.flatten()
+
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+
+        box_loss = F.l1_loss(
+            pred_bbox_deltas[sampled_pos_inds],
+            regression_targets[sampled_pos_inds],
+            reduction="sum",
+        ) / (sampled_inds.numel())
+
+        objectness_loss = F.binary_cross_entropy_with_logits(
+            objectness[sampled_inds], labels[sampled_inds]
+        )
+
+        return objectness_loss, box_loss
+
+    ###########################################################################
+    # FORWARD.
+    ###########################################################################
+
     def forward(self, images, bounding_boxes, targets, num_objects):
         """
         Performs the forward step of the model.
@@ -203,7 +335,7 @@ class FasterRCNN(TrainableNM):
         Args:
             images: Batch of images to be classified.
         """
-        #print("Faster R-CNN forward:")
+        # print("Faster R-CNN forward:")
         # We need to put this in a tuple again, as OD "framework" assumes it :]
 
         # Unstack tensors with boxes and target, removing the "padded objects".
@@ -224,7 +356,8 @@ class FasterRCNN(TrainableNM):
                          in zip(bboxes_unpadded, targets_unpadded)]
 
         # THE PROPPER forward pass.
-        #loss_dict = self.model(images, targets_tuple)
+        #######################################################################
+        # loss_dict = self.model(images, targets_tuple)
 
         if self.training and targets_tuple is None:
             raise ValueError("In training mode, targets should be passed")
@@ -240,7 +373,12 @@ class FasterRCNN(TrainableNM):
             features = OrderedDict([(0, features)])
 
         # Calculate the region proposals.
-        proposals, proposal_losses = self.rpn(images, features, targets_tuple)
+        proposals, anchors, objectness, pred_bbox_deltas = \
+            self.rpn(images, features,
+                     targets_tuple)
+
+        # Empty!!! No detections in "training" mode.
+        #print("Proposals for image 0: ", len(proposals[0]))
 
         # Calculate the regions.
         detections, detector_losses = self.roi_heads(
@@ -250,8 +388,26 @@ class FasterRCNN(TrainableNM):
         # print(detections)
 
         # Postprocess the images.
-        detections = self.transform.postprocess(
+        detections = self.postprocess(
             detections, images.image_sizes, original_image_sizes)
+
+        #######################################################################
+        # RPN losses.
+        proposal_losses = {}
+        if self.training:
+            labels, matched_gt_boxes = self.rpn.assign_targets_to_anchors(
+                anchors, targets_tuple)
+
+            regression_targets = self.rpn.box_coder.encode(
+                matched_gt_boxes, anchors)
+
+            loss_objectness, loss_rpn_box_reg = self.compute_loss(
+                objectness, pred_bbox_deltas, labels, regression_targets)
+
+            proposal_losses = {
+                "loss_objectness": loss_objectness,
+                "loss_rpn_box_reg": loss_rpn_box_reg,
+            }
 
         loss_dict = {}
         loss_dict.update(detector_losses)
@@ -259,6 +415,9 @@ class FasterRCNN(TrainableNM):
 
         # if self.training:
         #    return losses
+
+        # Return.
+        #######################################################################
 
         # Sum losses.
         losses = sum(loss for loss in loss_dict.values())
