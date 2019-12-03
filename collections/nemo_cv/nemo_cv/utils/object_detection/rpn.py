@@ -215,10 +215,6 @@ class RegionProposalNetwork(torch.nn.Module):
             considered as positive during training of the RPN.
         bg_iou_thresh (float): maximum IoU between the anchor and the GT box so that they can be
             considered as negative during training of the RPN.
-        batch_size_per_image (int): number of anchors that are sampled during training of the RPN
-            for computing the loss
-        positive_fraction (float): proportion of positive anchors in a mini-batch during training
-            of the RPN
         pre_nms_top_n (Dict[int]): number of proposals to keep before applying NMS. It should
             contain two fields: training and testing, to allow for different values depending
             on training or evaluation
@@ -234,7 +230,6 @@ class RegionProposalNetwork(torch.nn.Module):
                  head,
                  #
                  fg_iou_thresh, bg_iou_thresh,
-                 batch_size_per_image, positive_fraction,
                  #
                  pre_nms_top_n, post_nms_top_n, nms_thresh):
         super(RegionProposalNetwork, self).__init__()

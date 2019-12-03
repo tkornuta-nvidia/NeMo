@@ -26,7 +26,7 @@ import torch.nn.functional as F
 
 from ..utils.object_detection.rpn import AnchorGenerator, RPNHead, \
     RegionProposalNetwork
-from torchvision.models.detection.roi_heads import RoIHeads
+from ..utils.object_detection.roi_heads import RoIHeads
 
 from torchvision.models.detection.transform import \
     GeneralizedRCNNTransform
@@ -142,10 +142,13 @@ class FasterRCNN(TrainableNM):
         rpn = RegionProposalNetwork(
             rpn_anchor_generator, rpn_head,
             rpn_fg_iou_thresh, rpn_bg_iou_thresh,
-            rpn_batch_size_per_image, rpn_positive_fraction,
             rpn_pre_nms_top_n, rpn_post_nms_top_n, rpn_nms_thresh)
 
         # SAMPLER USED IN CALCULATION OF RPN LOSS!
+        # batch_size_per_image (int): number of anchors that are sampled during training of the RPN
+        #    for computing the loss
+        # positive_fraction (float): proportion of positive anchors in a mini-batch during training
+        #    of the RPN
         self.fg_bg_sampler = det_utils.BalancedPositiveNegativeSampler(
             rpn_batch_size_per_image, rpn_positive_fraction
         )
@@ -218,32 +221,16 @@ class FasterRCNN(TrainableNM):
         padded_mask = torch.nn.functional.pad(mask, (padding,) * 4)
         return padded_mask, scale
 
-    def resize_boxes(self, mask, box, im_h, im_w):
-        TO_REMOVE = 1
-        w = int(box[2] - box[0] + TO_REMOVE)
-        h = int(box[3] - box[1] + TO_REMOVE)
-        w = max(w, 1)
-        h = max(h, 1)
-
-        # Set shape to [batchxCxHxW]
-        mask = mask.expand((1, 1, -1, -1))
-
-        # Resize mask
-        mask = misc_nn_ops.interpolate(mask, size=(
-            h, w), mode='bilinear', align_corners=False)
-        mask = mask[0][0]
-
-        im_mask = torch.zeros(
-            (im_h, im_w), dtype=mask.dtype, device=mask.device)
-        x_0 = max(box[0], 0)
-        x_1 = min(box[2] + 1, im_w)
-        y_0 = max(box[1], 0)
-        y_1 = min(box[3] + 1, im_h)
-
-        im_mask[y_0:y_1, x_0:x_1] = mask[
-            (y_0 - box[1]):(y_1 - box[1]), (x_0 - box[0]):(x_1 - box[0])
-        ]
-        return im_mask
+    def resize_boxes(self, boxes, original_size, new_size):
+        ratios = tuple(float(s) / float(s_orig)
+                       for s, s_orig in zip(new_size, original_size))
+        ratio_height, ratio_width = ratios
+        xmin, ymin, xmax, ymax = boxes.unbind(1)
+        xmin = xmin * ratio_width
+        xmax = xmax * ratio_width
+        ymin = ymin * ratio_height
+        ymax = ymax * ratio_height
+        return torch.stack((xmin, ymin, xmax, ymax), dim=1)
 
     def paste_masks_in_image(self, masks, boxes, img_shape, padding=1):
         masks, scale = self.expand_masks(masks, padding=padding)
@@ -282,7 +269,7 @@ class FasterRCNN(TrainableNM):
         return result
 
     ###########################################################################
-    # LOSS.
+    # LOSS - region proposals.
     ###########################################################################
 
     def compute_loss(self, objectness, pred_bbox_deltas, labels,
@@ -378,7 +365,7 @@ class FasterRCNN(TrainableNM):
                      targets_tuple)
 
         # Empty!!! No detections in "training" mode.
-        #print("Proposals for image 0: ", len(proposals[0]))
+        # print("Proposals for image 0: ", len(proposals[0]))
 
         # Calculate the regions.
         detections, detector_losses = self.roi_heads(
