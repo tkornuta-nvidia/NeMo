@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+# https://github.com/jwyang/faster-rcnn.pytorch/tree/pytorch-1.0
+
 __author__ = "Tomasz Kornuta"
 
 from torchvision.ops import misc as misc_nn_ops
