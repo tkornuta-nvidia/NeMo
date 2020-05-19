@@ -45,8 +45,10 @@ logging.info(
 # Build the training graph.
 with NeuralGraph(operation_mode=OperationMode.both, name="trainable_module") as trainable_module:
     # Bind the input.
-    _ = fx(x=trainable_module)
+    embeddings = fx(x=trainable_module)
+    pred = fx(x=embeddings)
     # All outputs will be bound by default.
+    trainable_module.outputs["predition"] = pred
 
 # Compose two graphs into final graph.
 with NeuralGraph(operation_mode=OperationMode.training, name="training_graph") as training_graph:
